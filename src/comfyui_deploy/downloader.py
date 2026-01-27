@@ -433,3 +433,261 @@ class BatchDownloader:
             "failed": failed,
             "skipped": skipped,
         }
+
+
+class ParallelDownloader:
+    """
+    High-performance parallel downloader for multiple files.
+    
+    Uses concurrent downloads with configurable workers for maximum speed.
+    Supports segmented downloads for very large files.
+    """
+    
+    def __init__(
+        self,
+        max_workers: int = 4,
+        hf_token: str | None = None,
+        civitai_api_key: str | None = None,
+        segments_per_file: int = 4,
+    ):
+        """
+        Initialize parallel downloader.
+        
+        Args:
+            max_workers: Maximum concurrent file downloads (default: 4)
+            hf_token: HuggingFace API token for gated models
+            civitai_api_key: CivitAI API key
+            segments_per_file: Number of segments for large file downloads (default: 4)
+        """
+        self.max_workers = max_workers
+        self.hf_token = hf_token
+        self.civitai_api_key = civitai_api_key
+        self.segments_per_file = segments_per_file
+        
+        # Create a base downloader for single-file downloads
+        self.downloader = ModelDownloader(
+            hf_token=hf_token,
+            civitai_api_key=civitai_api_key,
+        )
+    
+    def download_all(
+        self,
+        downloads: list[dict],
+        progress_callback: callable = None,
+    ) -> dict:
+        """
+        Download multiple files in parallel.
+        
+        Args:
+            downloads: List of dicts with keys: url, destination, filename (optional)
+            progress_callback: Optional callback(completed, total, current_file)
+            
+        Returns:
+            Dict with successful, failed, skipped lists
+        """
+        import concurrent.futures
+        from threading import Lock
+        
+        successful = []
+        failed = []
+        skipped = []
+        
+        total = len(downloads)
+        completed = 0
+        lock = Lock()
+        
+        console.print(f"\n[bold cyan]⚡ Parallel Download ({self.max_workers} workers)[/bold cyan]")
+        console.print(f"   {total} files to download\n")
+        
+        def download_one(item: dict) -> tuple[str, dict | None, str | None]:
+            """Download a single file and return result."""
+            url = item.get("url")
+            destination = Path(item.get("destination"))
+            filename = item.get("filename")
+            
+            if not url:
+                return ("skip", {"filename": filename or "unknown", "reason": "No URL"}, None)
+            
+            try:
+                path = self.downloader.download(
+                    url=url,
+                    destination=destination,
+                    filename=filename,
+                )
+                return ("success", {"filename": path.name, "path": str(path), "url": url}, None)
+            except Exception as e:
+                return ("fail", {"filename": filename or url, "url": url}, str(e))
+        
+        # Use ThreadPoolExecutor for parallel downloads
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit all download tasks
+            future_to_item = {
+                executor.submit(download_one, item): item 
+                for item in downloads
+            }
+            
+            # Process results as they complete
+            for future in concurrent.futures.as_completed(future_to_item):
+                item = future_to_item[future]
+                try:
+                    status, result, error = future.result()
+                    
+                    with lock:
+                        completed += 1
+                        
+                        if status == "success":
+                            successful.append(result)
+                            console.print(f"[green]✓ [{completed}/{total}] {result['filename']}[/green]")
+                        elif status == "skip":
+                            skipped.append(result)
+                            console.print(f"[yellow]⊘ [{completed}/{total}] {result['filename']}: {result.get('reason', 'Skipped')}[/yellow]")
+                        else:
+                            result["error"] = error
+                            failed.append(result)
+                            console.print(f"[red]✗ [{completed}/{total}] {result['filename']}: {error}[/red]")
+                        
+                        if progress_callback:
+                            progress_callback(completed, total, result.get('filename', ''))
+                            
+                except Exception as e:
+                    with lock:
+                        completed += 1
+                        failed.append({
+                            "filename": item.get("filename", "unknown"),
+                            "url": item.get("url", ""),
+                            "error": str(e),
+                        })
+                        console.print(f"[red]✗ [{completed}/{total}] Error: {e}[/red]")
+        
+        # Print summary
+        console.print("\n" + "=" * 50)
+        console.print("[bold]⚡ Parallel Download Summary[/bold]")
+        console.print("=" * 50)
+        console.print(f"[green]✓ Successful: {len(successful)}[/green]")
+        console.print(f"[red]✗ Failed: {len(failed)}[/red]")
+        console.print(f"[yellow]⊘ Skipped: {len(skipped)}[/yellow]")
+        
+        if failed:
+            console.print("\n[red]Failed downloads:[/red]")
+            for item in failed:
+                console.print(f"  - {item['filename']}: {item.get('error', 'Unknown error')}")
+        
+        return {
+            "successful": successful,
+            "failed": failed,
+            "skipped": skipped,
+        }
+    
+    def download_large_file_segmented(
+        self,
+        url: str,
+        destination: Path,
+        filename: str | None = None,
+    ) -> Path:
+        """
+        Download a large file using multiple parallel segments.
+        
+        This can speed up downloads from servers that support Range requests
+        by downloading multiple parts of the file simultaneously.
+        
+        Args:
+            url: Download URL
+            destination: Target directory
+            filename: Output filename
+            
+        Returns:
+            Path to downloaded file
+        """
+        import concurrent.futures
+        import tempfile
+        
+        destination = Path(destination)
+        destination.mkdir(parents=True, exist_ok=True)
+        
+        # Get file info
+        headers = {}
+        if "huggingface.co" in url and self.hf_token:
+            headers["Authorization"] = f"Bearer {self.hf_token}"
+        
+        session = requests.Session()
+        response = session.head(url, headers=headers, allow_redirects=True, timeout=30)
+        
+        # Check if server supports range requests
+        accepts_ranges = response.headers.get("Accept-Ranges") == "bytes"
+        total_size = int(response.headers.get("Content-Length", 0))
+        
+        if not accepts_ranges or total_size == 0 or total_size < 50 * 1024 * 1024:  # Less than 50MB
+            # Fall back to regular download
+            return self.downloader.download(url, destination, filename)
+        
+        # Extract filename
+        if filename is None:
+            filename = self.downloader._extract_filename(url)
+        
+        target_path = destination / filename
+        
+        # Check if already exists
+        if target_path.exists() and target_path.stat().st_size == total_size:
+            console.print(f"[green]✓ {filename} already exists[/green]")
+            return target_path
+        
+        console.print(f"[cyan]⚡ Segmented download: {filename} ({self.downloader._format_size(total_size)})[/cyan]")
+        console.print(f"   Using {self.segments_per_file} parallel segments")
+        
+        # Calculate segment ranges
+        segment_size = total_size // self.segments_per_file
+        segments = []
+        for i in range(self.segments_per_file):
+            start = i * segment_size
+            end = start + segment_size - 1 if i < self.segments_per_file - 1 else total_size - 1
+            segments.append((i, start, end))
+        
+        # Download segments in parallel
+        temp_dir = tempfile.mkdtemp(prefix="comfyui_download_")
+        segment_files = []
+        
+        def download_segment(seg_info: tuple) -> tuple[int, str]:
+            seg_id, start, end = seg_info
+            seg_path = Path(temp_dir) / f"segment_{seg_id}"
+            
+            seg_headers = headers.copy()
+            seg_headers["Range"] = f"bytes={start}-{end}"
+            
+            response = session.get(
+                url,
+                headers=seg_headers,
+                stream=True,
+                timeout=60,
+            )
+            response.raise_for_status()
+            
+            with open(seg_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=128 * 1024):
+                    f.write(chunk)
+            
+            return (seg_id, str(seg_path))
+        
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.segments_per_file) as executor:
+                futures = [executor.submit(download_segment, seg) for seg in segments]
+                
+                for future in concurrent.futures.as_completed(futures):
+                    seg_id, seg_path = future.result()
+                    segment_files.append((seg_id, seg_path))
+                    console.print(f"  [green]✓ Segment {seg_id + 1}/{self.segments_per_file} complete[/green]")
+            
+            # Sort and merge segments
+            segment_files.sort(key=lambda x: x[0])
+            
+            console.print("  [cyan]Merging segments...[/cyan]")
+            with open(target_path, "wb") as outfile:
+                for seg_id, seg_path in segment_files:
+                    with open(seg_path, "rb") as infile:
+                        shutil.copyfileobj(infile, outfile)
+            
+            console.print(f"[green]✓ {filename} downloaded successfully[/green]")
+            return target_path
+            
+        finally:
+            # Cleanup temp files
+            shutil.rmtree(temp_dir, ignore_errors=True)

@@ -6,9 +6,9 @@ from pathlib import Path
 from comfyui_deploy.workflow_parser import WorkflowParser
 from comfyui_deploy.smart_search import smart_search
 from comfyui_deploy.node_installer import NodeInstaller, BatchNodeInstaller
-from comfyui_deploy.downloader import ModelDownloader, BatchDownloader
+from comfyui_deploy.downloader import ModelDownloader, BatchDownloader, ParallelDownloader
 
-def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False):
+def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False, parallel: int = 4):
     """
     Deploy a complete workflow to a ComfyUI installation.
     
@@ -16,6 +16,7 @@ def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False
         workflow_path: Path to the workflow JSON file
         comfyui_path: Path to ComfyUI installation
         dry_run: If True, only analyze without making changes
+        parallel: Number of parallel downloads (default: 4, set to 1 for sequential)
     """
     comfyui = Path(comfyui_path)
     
@@ -113,51 +114,68 @@ def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False
     print("STEP 2: DOWNLOADING MODELS")
     print("=" * 70)
     
-    downloader = ModelDownloader()
-    models_downloaded = 0
+    # First, resolve all download URLs
+    print("\n🔍 Resolving model download URLs...")
+    download_queue = []
     models_skipped = 0
     models_failed = 0
     
     for model in deps.models:
-        print(f"\n📥 {model.filename}")
-        
-        # Check if already exists
         target_dir = comfyui / model.target_folder
         target_file = target_dir / model.filename
         
         if target_file.exists():
-            print(f"   ⏭️  Already exists")
+            print(f"   ⏭️  {model.filename} - Already exists")
             models_skipped += 1
             continue
         
         # Find download URL if not already known
         if not model.download_url:
-            print(f"   🔍 Searching for download URL...")
             result = smart_search(model.filename, model_type=model.model_type)
             
             if result:
                 model.download_url = result["download_url"]
                 model.source = result["source"]
-                print(f"   ✅ Found on {model.source}")
+                print(f"   ✅ {model.filename} - Found on {model.source}")
             else:
-                print(f"   ❌ Could not find download URL - skipping")
+                print(f"   ❌ {model.filename} - Could not find download URL")
                 models_failed += 1
                 continue
+        else:
+            print(f"   ✅ {model.filename} - URL provided")
         
-        print(f"   📂 Target: {target_dir}")
-        print(f"   🌐 Downloading from {model.source or 'direct'}...")
-        
-        try:
-            path = downloader.download(
-                url=model.download_url,
-                destination=target_dir,
-                filename=model.filename,
-            )
-            print(f"   ✅ Downloaded!")
-            models_downloaded += 1
-        except Exception as e:
-            print(f"   ❌ Failed: {e}")
-            models_failed += 1
+        download_queue.append({
+            "url": model.download_url,
+            "destination": target_dir,
+            "filename": model.filename,
+        })
+    
+    # Download all models (in parallel if enabled)
+    models_downloaded = 0
+    
+    if download_queue:
+        if parallel > 1:
+            print(f"\n⚡ Starting parallel downloads ({parallel} workers)...")
+            parallel_downloader = ParallelDownloader(max_workers=parallel)
+            results = parallel_downloader.download_all(download_queue)
+            models_downloaded = len(results["successful"])
+            models_failed += len(results["failed"])
+        else:
+            print(f"\n📥 Downloading models sequentially...")
+            downloader = ModelDownloader()
+            for item in download_queue:
+                try:
+                    print(f"\n   📥 {item['filename']}")
+                    path = downloader.download(
+                        url=item["url"],
+                        destination=item["destination"],
+                        filename=item["filename"],
+                    )
+                    print(f"   ✅ Downloaded!")
+                    models_downloaded += 1
+                except Exception as e:
+                    print(f"   ❌ Failed: {e}")
+                    models_failed += 1
     
     # ========================================
     # SUMMARY
@@ -192,22 +210,27 @@ Examples:
   # Analyze workflow (dry run)
   python deploy_workflow.py --workflow my_workflow.json --comfyui /path/to/ComfyUI --dry-run
   
-  # Full deployment
+  # Full deployment with parallel downloads (default)
   python deploy_workflow.py --workflow my_workflow.json --comfyui /path/to/ComfyUI
   
-  # Deploy with short options
-  python deploy_workflow.py -w workflow.json -c /path/to/ComfyUI
+  # Fast parallel download (8 workers)
+  python deploy_workflow.py -w workflow.json -c /path/to/ComfyUI --parallel 8
+  
+  # Sequential download (1 at a time)
+  python deploy_workflow.py -w workflow.json -c /path/to/ComfyUI --parallel 1
         """
     )
     parser.add_argument("--workflow", "-w", required=True, help="Path to workflow JSON file")
     parser.add_argument("--comfyui", "-c", required=True, help="Path to ComfyUI installation")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Analyze only, don't make changes")
+    parser.add_argument("--parallel", "-p", type=int, default=4, help="Number of parallel downloads (default: 4, use 1 for sequential)")
     
     args = parser.parse_args()
     
     print(f"Workflow: {args.workflow}")
     print(f"ComfyUI:  {args.comfyui}")
     print(f"Dry run:  {args.dry_run}")
+    print(f"Parallel: {args.parallel} workers")
     print()
     
-    deploy_workflow(args.workflow, args.comfyui, dry_run=args.dry_run)
+    deploy_workflow(args.workflow, args.comfyui, dry_run=args.dry_run, parallel=args.parallel)
