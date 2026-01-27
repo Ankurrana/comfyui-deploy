@@ -478,19 +478,30 @@ class CivitAISearch:
     
     def find_best_match(self, filename: str, model_type: str | None = None) -> dict | None:
         """Find the best matching model for a filename."""
-        results = self.search(filename, model_type=model_type, limit=5)
+        results = self.search(filename, model_type=model_type, limit=10)
         
         if not results:
             return None
         
-        # Check for exact filename match
+        # Check for exact filename match first
         filename_lower = filename.lower()
         for r in results:
             if r["filename"].lower() == filename_lower:
                 return r
         
-        # Return best match by score
-        return results[0] if results else None
+        # Only return a match if similarity is above threshold
+        # This prevents false positives like returning "fashigirl.safetensors" 
+        # when searching for "EldritchDigitalArt.safetensors"
+        MIN_SIMILARITY = 0.3
+        
+        best = results[0]
+        similarity = self._filename_similarity(filename, best["filename"])
+        
+        if similarity >= MIN_SIMILARITY:
+            return best
+        
+        # No good match found
+        return None
     
     def _filename_to_search_terms(self, filename: str) -> list[str]:
         """
