@@ -5,6 +5,14 @@ Checks if all model download links are accessible.
 import os
 import sys
 import argparse
+
+# Load .env file if present
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, use environment variables directly
+
 import requests
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -126,19 +134,26 @@ def test_workflow(workflow_path: Path, verbose: bool = False) -> dict:
 
 def test_directory(directory: str, parallel: int = 4, verbose: bool = False) -> list[dict]:
     """
-    Test all workflow files in a directory.
+    Test all workflow files in a directory or a single workflow file.
     """
-    dir_path = Path(directory)
+    path = Path(directory)
     
-    if not dir_path.exists():
-        print(f"❌ Directory does not exist: {directory}")
+    if not path.exists():
+        print(f"Path does not exist: {directory}")
         sys.exit(1)
     
-    # Find all JSON files
-    workflow_files = list(dir_path.glob("*.json"))
+    # Check if it's a single file or directory
+    if path.is_file():
+        if path.suffix.lower() != ".json":
+            print(f"File is not a JSON file: {directory}")
+            sys.exit(1)
+        workflow_files = [path]
+    else:
+        # Find all JSON files in directory
+        workflow_files = list(path.glob("*.json"))
     
     if not workflow_files:
-        print(f"❌ No JSON files found in: {directory}")
+        print(f"No JSON files found in: {directory}")
         sys.exit(1)
     
     print(f"\n{'='*70}")
@@ -225,8 +240,8 @@ if __name__ == "__main__":
         description="Test workflow model URLs without downloading"
     )
     parser.add_argument(
-        "directory",
-        help="Directory containing workflow JSON files"
+        "path",
+        help="Workflow JSON file or directory containing workflow files"
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -242,7 +257,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    results = test_directory(args.directory, parallel=args.parallel, verbose=args.verbose)
+    results = test_directory(args.path, parallel=args.parallel, verbose=args.verbose)
     
     # Exit with error code if any failures
     total_failed = sum(r["failed"] for r in results)

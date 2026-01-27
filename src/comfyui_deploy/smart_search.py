@@ -381,82 +381,161 @@ class CivitAISearch:
     
     API_BASE = "https://civitai.com/api/v1"
     
+    # Well-known models that are hard to find via CivitAI search
+    # Maps filename patterns to model IDs
+    KNOWN_MODELS = {
+        "juggernaut": 133005,  # Juggernaut XL
+        "dreamshaper": 4384,   # DreamShaper
+        "realisticvision": 4201,  # Realistic Vision
+        "photon": 84728,  # Photon
+        "zavychroma": 119229,  # ZavyChroma XL
+    }
+    
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key
         self.session = requests.Session()
     
+    def _try_known_model(self, filename: str, model_type: str | None = None) -> list[dict]:
+        """Check if filename matches a known model and fetch it directly by ID."""
+        filename_lower = filename.lower()
+        
+        for pattern, model_id in self.KNOWN_MODELS.items():
+            if pattern in filename_lower:
+                # Fetch this model directly by ID
+                try:
+                    response = self.session.get(
+                        f"{self.API_BASE}/models/{model_id}",
+                        timeout=30,
+                    )
+                    if response.status_code != 200:
+                        continue
+                    
+                    model = response.json()
+                    results = []
+                    
+                    for version in model.get("modelVersions", []):
+                        for file_info in version.get("files", []):
+                            file_name = file_info.get("name", "")
+                            if not self._is_model_file(file_name):
+                                continue
+                            
+                            download_url = file_info.get("downloadUrl", "")
+                            if self.api_key and download_url:
+                                sep = "&" if "?" in download_url else "?"
+                                download_url = f"{download_url}{sep}token={self.api_key}"
+                            
+                            results.append({
+                                "name": model.get("name"),
+                                "filename": file_name,
+                                "download_url": download_url,
+                                "type": model.get("type", "").lower(),
+                                "downloads": model.get("stats", {}).get("downloadCount", 0),
+                                "source": "civitai",
+                                "model_id": model_id,
+                                "version": version.get("name"),
+                            })
+                    
+                    return results
+                except:
+                    continue
+        
+        return []
+    
     def search(self, filename: str, model_type: str | None = None, limit: int = 5) -> list[dict]:
         """
         Search CivitAI for models matching the filename.
+        Tries multiple search term variations since CivitAI search is strict.
         
         Returns list of dicts with: name, filename, download_url, type, downloads
         """
-        # Clean filename for search
-        search_term = self._filename_to_search_term(filename)
+        # First, try known model lookup (more reliable than search)
+        known_results = self._try_known_model(filename, model_type)
+        if known_results:
+            # Sort by filename similarity
+            known_results.sort(
+                key=lambda x: self._filename_similarity(filename, x["filename"]),
+                reverse=True,
+            )
+            return known_results[:limit]
         
-        params = {
-            "query": search_term,
-            "limit": limit,
-        }
+        # Get multiple search terms to try
+        search_terms = self._filename_to_search_terms(filename)
         
         # Map model type to CivitAI types
         civitai_type = self._get_civitai_type(model_type)
-        if civitai_type:
-            params["types"] = civitai_type
         
-        try:
-            response = self.session.get(
-                f"{self.API_BASE}/models",
-                params=params,
-                timeout=30,
-            )
-            response.raise_for_status()
-            data = response.json()
+        all_results = []
+        seen_ids = set()
+        
+        for search_term in search_terms:
+            params = {
+                "query": search_term,
+                "limit": limit,
+            }
+            if civitai_type:
+                params["types"] = civitai_type
             
-            results = []
-            for model in data.get("items", []):
-                versions = model.get("modelVersions", [])
-                if not versions:
-                    continue
+            try:
+                response = self.session.get(
+                    f"{self.API_BASE}/models",
+                    params=params,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                data = response.json()
                 
-                # Get files from latest version
-                files = versions[0].get("files", [])
-                for file_info in files:
-                    file_name = file_info.get("name", "")
-                    if not self._is_model_file(file_name):
+                for model in data.get("items", []):
+                    # Skip if we've already seen this model
+                    model_id = model.get("id")
+                    if model_id in seen_ids:
+                        continue
+                    seen_ids.add(model_id)
+                    
+                    versions = model.get("modelVersions", [])
+                    if not versions:
                         continue
                     
-                    download_url = file_info.get("downloadUrl", "")
-                    
-                    # Add API key to URL if available (needed for some downloads)
-                    if self.api_key and download_url:
-                        sep = "&" if "?" in download_url else "?"
-                        download_url = f"{download_url}{sep}token={self.api_key}"
-                    
-                    results.append({
-                        "name": model.get("name"),
-                        "filename": file_name,
-                        "download_url": download_url,
-                        "type": model.get("type", "").lower(),
-                        "downloads": model.get("stats", {}).get("downloadCount", 0),
-                        "source": "civitai",
-                        "model_id": model.get("id"),
-                    })
-            
-            # Sort by filename similarity and downloads
-            results.sort(
-                key=lambda x: (
-                    self._filename_similarity(filename, x["filename"]),
-                    x["downloads"]
-                ),
-                reverse=True,
-            )
-            
-            return results[:limit]
-            
-        except requests.RequestException as e:
-            console.print(f"[dim]  CivitAI search error: {e}[/dim]")
-            return []
+                    # Check ALL versions for filename matches, not just latest
+                    # This helps find renamed/older versions
+                    for version in versions:
+                        files = version.get("files", [])
+                        for file_info in files:
+                            file_name = file_info.get("name", "")
+                            if not self._is_model_file(file_name):
+                                continue
+                            
+                            download_url = file_info.get("downloadUrl", "")
+                            
+                            # Add API key to URL if available (needed for some downloads)
+                            if self.api_key and download_url:
+                                sep = "&" if "?" in download_url else "?"
+                                download_url = f"{download_url}{sep}token={self.api_key}"
+                            
+                            all_results.append({
+                                "name": model.get("name"),
+                                "filename": file_name,
+                                "download_url": download_url,
+                                "type": model.get("type", "").lower(),
+                                "downloads": model.get("stats", {}).get("downloadCount", 0),
+                                "source": "civitai",
+                                "model_id": model.get("id"),
+                                "version": version.get("name"),
+                            })
+                        
+            except requests.RequestException as e:
+                console.print(f"[dim]  CivitAI search error for '{search_term}': {e}[/dim]")
+                continue
+        
+        # Sort by filename similarity and downloads
+        all_results.sort(
+            key=lambda x: (
+                self._filename_similarity(filename, x["filename"]),
+                x["downloads"]
+            ),
+            reverse=True,
+        )
+        
+        return all_results[:limit]
     
     def find_best_match(self, filename: str, model_type: str | None = None) -> dict | None:
         """Find the best matching model for a filename."""
@@ -474,15 +553,51 @@ class CivitAISearch:
         # Return best match by score
         return results[0] if results else None
     
-    def _filename_to_search_term(self, filename: str) -> str:
-        """Convert filename to search term."""
+    def _filename_to_search_terms(self, filename: str) -> list[str]:
+        """
+        Convert filename to multiple search terms to try.
+        CivitAI search is very strict, so we try multiple variations.
+        """
+        terms = []
+        
         # Remove extension
         name = re.sub(r"\.(safetensors|ckpt|pt|pth|bin)$", "", filename, flags=re.IGNORECASE)
-        # Replace separators with spaces
-        name = re.sub(r"[_\-]+", " ", name)
-        # Remove precision suffixes
-        name = re.sub(r"\s*(fp16|fp32|bf16|fp8|e4m3fn|scaled)\s*", " ", name, flags=re.IGNORECASE)
-        return name.strip()
+        
+        # Original with spaces instead of underscores
+        term1 = re.sub(r"[_\-]+", " ", name)
+        term1 = re.sub(r"\s*(fp16|fp32|bf16|fp8|e4m3fn|scaled)\s*", " ", term1, flags=re.IGNORECASE)
+        terms.append(term1.strip())
+        
+        # Try camelCase preserved (e.g., juggernautXL)
+        term2 = re.sub(r"[_\-]+", "", name)  # Remove separators, keep camelCase
+        if term2 != terms[0]:
+            terms.append(term2)
+        
+        # Try CivitAI-style naming (juggernautXL_ prefix)
+        name_lower = name.lower()
+        civitai_prefixes = [
+            ("juggernaut", "juggernautxl"),
+            ("dreamshaper", "dreamshaper"),
+            ("realistic", "realisticVision"),
+            ("photon", "photon"),
+            ("pony", "ponyDiffusion"),
+        ]
+        for keyword, prefix in civitai_prefixes:
+            if keyword in name_lower:
+                terms.append(prefix)
+                break
+        
+        # Try just the first word/part (e.g., "juggernaut" from "Juggernaut_X_RunDiffusion")
+        first_part = re.split(r"[_\-\s]+", name)[0]
+        if len(first_part) >= 4 and first_part.lower() not in [t.lower() for t in terms]:
+            terms.append(first_part)
+        
+        return terms[:5]  # Limit to 5 variations
+    
+    def _filename_to_search_term(self, filename: str) -> str:
+        """Convert filename to search term (legacy, returns first term)."""
+        terms = self._filename_to_search_terms(filename)
+        return terms[0] if terms else filename
     
     def _get_civitai_type(self, model_type: str | None) -> str | None:
         """Map internal model type to CivitAI type."""
@@ -509,21 +624,62 @@ class CivitAISearch:
         query_lower = query.lower()
         candidate_lower = candidate.lower()
         
-        if query_lower == candidate_lower:
+        # Remove extensions for comparison
+        query_clean = re.sub(r"\.(safetensors|ckpt|pt|pth|bin)$", "", query_lower)
+        candidate_clean = re.sub(r"\.(safetensors|ckpt|pt|pth|bin)$", "", candidate_lower)
+        
+        if query_clean == candidate_clean:
             return 1.0
-        if query_lower in candidate_lower:
+        if query_clean in candidate_clean:
             return 0.8
-        if candidate_lower in query_lower:
+        if candidate_clean in query_clean:
             return 0.7
         
-        # Word overlap
-        query_words = set(re.split(r"[_\-\s.]+", query_lower))
-        candidate_words = set(re.split(r"[_\-\s.]+", candidate_lower))
+        # Extract meaningful parts - handle both underscore and camelCase
+        def extract_words(s):
+            words = set()
+            # Split on underscores, hyphens, spaces
+            parts = re.split(r"[_\-\s.]+", s)
+            for p in parts:
+                # Add the whole part
+                if len(p) >= 2:
+                    words.add(p.lower())
+                # Split camelCase and add parts
+                camel_parts = re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)', p)
+                for cp in camel_parts:
+                    if len(cp) >= 2:
+                        words.add(cp.lower())
+                # Also check for known keywords embedded in the string
+                known_keywords = ['rundiffusion', 'juggernaut', 'dreamshaper', 'realistic', 
+                                  'photon', 'ragnarok', 'lightning', 'hyper', 'inpaint']
+                for kw in known_keywords:
+                    if kw in p.lower():
+                        words.add(kw)
+            return words
         
+        query_words = extract_words(query_clean)
+        candidate_words = extract_words(candidate_clean)
+        
+        # Remove common/noise words
+        noise = {"by", "the", "safetensors", "fp16", "fp32", "bf16", "fp8"}
+        query_words -= noise
+        candidate_words -= noise
+        
+        # Calculate overlap
         overlap = len(query_words & candidate_words)
         total = len(query_words | candidate_words)
         
-        return overlap / total if total > 0 else 0.0
+        base_score = overlap / total if total > 0 else 0.0
+        
+        # Bonus for version matches (e.g., "X" in both, "v8" in both)
+        query_versions = set(re.findall(r'\bv?\d+\b|\b[xX]\b', query_clean))
+        candidate_versions = set(re.findall(r'\bv?\d+\b|\b[xX]\b', candidate_clean))
+        if query_versions and candidate_versions:
+            version_overlap = len(query_versions & candidate_versions)
+            if version_overlap > 0:
+                base_score += 0.15 * version_overlap
+        
+        return min(base_score, 1.0)
 
 
 def smart_search(

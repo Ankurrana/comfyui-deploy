@@ -4,6 +4,14 @@ Complete workflow deployment - Downloads models AND installs custom nodes.
 import os
 import sys
 from pathlib import Path
+
+# Load .env file if present
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not installed, use environment variables directly
+
 from comfyui_deploy.workflow_parser import WorkflowParser
 from comfyui_deploy.smart_search import smart_search
 from comfyui_deploy.node_installer import NodeInstaller, BatchNodeInstaller
