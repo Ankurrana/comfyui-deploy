@@ -516,11 +516,20 @@ class CivitAISearch:
         # Original with spaces instead of underscores
         term1 = re.sub(r"[_\-]+", " ", name)
         term1 = re.sub(r"\s*(fp16|fp32|bf16|fp8|e4m3fn|scaled)\s*", " ", term1, flags=re.IGNORECASE)
+        # Also remove version numbers like 1.3
+        term1 = re.sub(r"\s*\d+\.\d+\s*", " ", term1)
         terms.append(term1.strip())
+        
+        # Try splitting camelCase (e.g., "EldritchDigitalArt" -> "Eldritch Digital Art")
+        camel_split = re.sub(r'([a-z])([A-Z])', r'\1 \2', name)
+        camel_split = re.sub(r'\s*\d+\.\d+\s*', ' ', camel_split)  # Remove versions
+        camel_split = camel_split.strip()
+        if camel_split != terms[0] and camel_split not in terms:
+            terms.append(camel_split)
         
         # Try camelCase preserved (e.g., juggernautXL)
         term2 = re.sub(r"[_\-]+", "", name)  # Remove separators, keep camelCase
-        if term2 != terms[0]:
+        if term2 != terms[0] and term2 not in terms:
             terms.append(term2)
         
         # Try CivitAI-style naming (juggernautXL_ prefix)
@@ -539,8 +548,14 @@ class CivitAISearch:
         
         # Try just the first word/part (e.g., "juggernaut" from "Juggernaut_X_RunDiffusion")
         first_part = re.split(r"[_\-\s]+", name)[0]
-        if len(first_part) >= 4 and first_part.lower() not in [t.lower() for t in terms]:
-            terms.append(first_part)
+        # Also try first camelCase word
+        camel_first = re.split(r'(?=[A-Z])', name)[0] or re.findall(r'^[A-Z][a-z]+', name)
+        if camel_first and isinstance(camel_first, list):
+            camel_first = camel_first[0] if camel_first else ""
+        
+        for part in [first_part, camel_first]:
+            if part and len(part) >= 4 and part.lower() not in [t.lower() for t in terms]:
+                terms.append(part)
         
         return terms[:5]  # Limit to 5 variations
     
