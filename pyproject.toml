@@ -43,11 +43,32 @@ dev = [
 comfyui-deploy = "comfyui_deploy.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/comfyui-deploy"
-Repository = "https://github.com/yourusername/comfyui-deploy"
+Homepage = "https://github.com/Ankurrana/comfyui-deploy"
+Repository = "https://github.com/Ankurrana/comfyui-deploy"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["src/comfyui_deploy"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
 
 [tool.black]
 line-length = 100
