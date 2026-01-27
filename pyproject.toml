@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comfyui-deploy"
+version = "0.1.0"
+description = "A utility for quickly deploying ComfyUI workflows with all required models and custom nodes"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "ComfyUI Deploy Team"}
+]
+keywords = ["comfyui", "stable-diffusion", "ai", "deployment", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "requests>=2.31.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0.1",
+    "click>=8.1.0",
+    "rich>=13.7.0",
+    "huggingface-hub>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.12.0",
+    "ruff>=0.1.9",
+]
+
+[project.scripts]
+comfyui-deploy = "comfyui_deploy.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/comfyui-deploy"
+Repository = "https://github.com/yourusername/comfyui-deploy"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I", "N", "UP", "B"]

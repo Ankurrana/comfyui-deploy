@@ -1,0 +1,289 @@
+# ComfyUI Deploy
+
+A utility for quickly deploying ComfyUI workflows on new machines. This tool automatically extracts all required models and custom nodes from workflow JSON files, searches for download URLs, and installs everything to the correct locations.
+
+## Features
+
+- 🔍 **Workflow Analysis**: Parses ComfyUI workflow JSON files to extract all dependencies
+- 📦 **Smart Model Search**: Automatically finds model download URLs from:
+  - ComfyUI Manager curated list
+  - HuggingFace (pattern matching + repo file listing)
+  - CivitAI (public API - no key required for most models)
+- 🧩 **Custom Node Installation**: Clones required nodes from GitHub and installs dependencies
+- 🗂️ **Correct Path Placement**: Automatically places models in the right ComfyUI folders
+- 🔐 **Optional Authentication**: Supports HuggingFace and CivitAI tokens for gated models
+- 📋 **Dry Run Mode**: Preview what will be installed before making changes
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/comfyui-deploy.git
+cd comfyui-deploy
+
+# Install in development mode
+pip install -e .
+```
+
+## Quick Start
+
+### 1. Analyze a Workflow (Dry Run)
+
+See what models and custom nodes are required without making changes:
+
+```bash
+python deploy_workflow.py -w workflow.json -c /path/to/ComfyUI --dry-run
+```
+
+### 2. Deploy a Workflow
+
+Download all models and install custom nodes:
+
+```bash
+python deploy_workflow.py -w workflow.json -c /path/to/ComfyUI
+```
+
+### Using the CLI
+
+```bash
+# Analyze workflow
+comfyui-deploy analyze workflow.json
+
+# Deploy with all dependencies
+comfyui-deploy deploy workflow.json --comfyui-path /path/to/ComfyUI
+
+# Search for a model
+comfyui-deploy search "sd_xl_base"
+```
+
+## How It Works
+
+### Directory Structure
+
+The tool uses ComfyUI's standard directory structure. You provide the path to your ComfyUI installation, and the tool automatically derives all other paths:
+
+```
+ComfyUI/                          ← You provide this path with --comfyui
+├── custom_nodes/                 ← Custom nodes installed here
+│   ├── ComfyUI-WanVideoWrapper/
+│   ├── comfyui-kjnodes/
+│   └── ...
+├── models/                       ← Models downloaded here
+│   ├── checkpoints/              ← SD/SDXL checkpoints
+│   ├── loras/                    ← LoRA models
+│   ├── vae/                      ← VAE models
+│   ├── clip/                     ← CLIP/T5 text encoders
+│   ├── diffusion_models/         ← Flux/Wan/LongCat diffusion models
+│   ├── controlnet/               ← ControlNet models
+│   ├── upscale_models/           ← ESRGAN/upscalers
+│   └── ...
+├── python_embeded/               ← Portable install Python (Windows)
+└── venv/                         ← Virtual environment (Linux/Mac)
+```
+
+### Model Type Detection
+
+The tool automatically detects model types from workflow node types and places them in the correct folder:
+
+| Node Type Pattern | Model Type | Target Folder |
+|-------------------|------------|---------------|
+| `CheckpointLoader*` | checkpoint | `models/checkpoints` |
+| `LoraLoader*`, `*LoraSelect*` | lora | `models/loras` |
+| `VAELoader*` | vae | `models/vae` |
+| `CLIPLoader*`, `*TextEncode*` | clip | `models/clip` |
+| `*DiffusionModel*`, `WanVideo*` | diffusion | `models/diffusion_models` |
+| `ControlNetLoader*` | controlnet | `models/controlnet` |
+| `UpscaleModel*`, `*ESRGAN*` | upscale | `models/upscale_models` |
+
+### Smart Model Search
+
+When a workflow doesn't include download URLs, the tool searches multiple sources:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Search Flow                           │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│ 1. ComfyUI Manager List (instant, curated)              │
+│    - Fetches from GitHub: ltdrdata/ComfyUI-Manager      │
+│    - ~500+ models with verified URLs                    │
+└─────────────────────────────────────────────────────────┘
+                           │ not found
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│ 2. HuggingFace Smart Search                              │
+│    - Pattern matching: "longcat" → Kijai/LongCat-Video   │
+│    - Lists actual files in candidate repos via API       │
+│    - NO API key required                                 │
+└─────────────────────────────────────────────────────────┘
+                           │ not found
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│ 3. CivitAI Search                                        │
+│    - Searches public API by filename                     │
+│    - NO API key required for public models               │
+│    - Key only needed for NSFW/gated downloads            │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Pattern-Based Repository Mapping
+
+The tool maps filename patterns to likely HuggingFace repositories:
+
+| Pattern | Repositories Checked |
+|---------|---------------------|
+| `longcat*` | `Kijai/LongCat-Video_comfy` |
+| `wan*`, `umt5*` | `Comfy-Org/Wan_2.1_ComfyUI_repackaged`, `ALGOTECH/WanVideo_comfy` |
+| `flux*` | `black-forest-labs/FLUX.1-dev`, `comfyanonymous/flux_text_encoders` |
+| `sd_xl*`, `sdxl*` | `stabilityai/stable-diffusion-xl-base-1.0` |
+| `control*` | `lllyasviel/ControlNet-v1-1` |
+
+### Custom Node Installation
+
+1. **Identifies** custom nodes from workflow's `cnr_id` property
+2. **Looks up** GitHub URL from known repository mapping
+3. **Clones** repository to `ComfyUI/custom_nodes/`
+4. **Installs** Python dependencies from `requirements.txt`
+
+Known custom node repositories:
+- `ComfyUI-WanVideoWrapper` → `github.com/kijai/ComfyUI-WanVideoWrapper`
+- `comfyui-videohelpersuite` → `github.com/Kosinkadink/ComfyUI-VideoHelperSuite`
+- `comfyui-kjnodes` → `github.com/kijai/ComfyUI-KJNodes`
+- `rgthree-comfy` → `github.com/rgthree/rgthree-comfy`
+- And 20+ more...
+
+## Configuration (Optional)
+
+For gated models or higher API rate limits, configure authentication:
+
+```bash
+# Set HuggingFace token (for gated models like Flux-dev)
+comfyui-deploy config set hf_token YOUR_HF_TOKEN
+
+# Set CivitAI API key (for NSFW models)
+comfyui-deploy config set civitai_api_key YOUR_CIVITAI_KEY
+```
+
+Or use environment variables:
+```bash
+export HF_TOKEN=your_token
+export CIVITAI_API_KEY=your_key
+```
+
+Config file location: `~/.comfyui-deploy/config.yaml`
+
+## Command Reference
+
+### deploy_workflow.py
+
+```bash
+python deploy_workflow.py --workflow WORKFLOW --comfyui COMFYUI [--dry-run]
+
+Arguments:
+  --workflow, -w    Path to workflow JSON file (required)
+  --comfyui, -c     Path to ComfyUI installation (required)
+  --dry-run, -n     Analyze only, don't download/install anything
+```
+
+### comfyui-deploy CLI
+
+```bash
+# Analyze workflow
+comfyui-deploy analyze <workflow.json> [--output report.yaml]
+
+# Deploy workflow
+comfyui-deploy deploy <workflow.json> --comfyui-path <path>
+    [--download-models/--no-download-models]
+    [--install-nodes/--no-install-nodes]
+    [--dry-run]
+
+# Search for models
+comfyui-deploy search <query> [--type lora|checkpoint|vae] [--limit 10]
+
+# Manage configuration
+comfyui-deploy config show
+comfyui-deploy config set <key> <value>
+comfyui-deploy config init
+
+# List installed custom nodes
+comfyui-deploy list-nodes --comfyui-path <path>
+```
+
+## Example Output
+
+```
+======================================================================
+PARSING WORKFLOW
+======================================================================
+
+📦 Models required: 4
+   ❌ LongCat_TI2V_comfy_fp8_e4m3fn_scaled_KJ.safetensors (diffusion)
+      → models/diffusion_models
+   ❌ LongCat_distill_lora_alpha64_bf16.safetensors (lora)
+      → models/loras
+   ❌ wan_2.1_vae.safetensors (vae)
+      → models/vae
+   ❌ umt5-xxl-enc-bf16.safetensors (clip)
+      → models/clip
+
+🧩 Custom nodes required: 3
+   ✅ ComfyUI-WanVideoWrapper
+      → https://github.com/kijai/ComfyUI-WanVideoWrapper
+   ✅ comfyui-kjnodes
+      → https://github.com/kijai/ComfyUI-KJNodes
+   ✅ comfyui-videohelpersuite
+      → https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+```
+
+## Extending the Tool
+
+### Adding New Model Sources
+
+Edit `src/comfyui_deploy/smart_search.py`:
+
+```python
+REPO_PATTERNS = {
+    r"my_model_pattern": [
+        "username/repo-name",
+    ],
+}
+```
+
+### Adding New Custom Node Mappings
+
+Edit `src/comfyui_deploy/node_installer.py`:
+
+```python
+CUSTOM_NODE_REPOS = {
+    "my-custom-node": "https://github.com/user/my-custom-node",
+}
+```
+
+## Troubleshooting
+
+### Model not found
+- Check if the model name is spelled correctly in the workflow
+- Try searching manually: `comfyui-deploy search "model_name"`
+- Add the model to the pattern mapping in `smart_search.py`
+
+### Custom node installation fails
+- Ensure `git` is installed and in PATH
+- Check if the repository URL is correct
+- Try cloning manually: `git clone <url> custom_nodes/<name>`
+
+### Permission errors
+- Run with administrator privileges (Windows)
+- Check folder permissions on the ComfyUI directory
+
+## License
+
+MIT License - see LICENSE file for details.
+
+## Contributing
+
+Contributions welcome! Please submit pull requests for:
+- New model repository mappings
+- New custom node mappings
+- Bug fixes and improvements
