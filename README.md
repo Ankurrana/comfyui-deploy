@@ -49,16 +49,13 @@ This example uses the included LongCat image-to-video workflow located in `video
 First, see what models and custom nodes are required **without downloading anything**:
 
 ```bash
-python deploy_workflow.py \
-  --workflow video-workflows/longcat-img2video.json \
-  --comfyui /workspace/ComfyUI \
-  --dry-run
+python deploy_workflow.py -w video-workflows/longcat-img2video.json -c /workspace/ComfyUI --dry-run
 ```
 
-Or using short flags:
+Or using the full flag names:
 
 ```bash
-python deploy_workflow.py -w video-workflows/longcat-img2video.json -c /workspace/ComfyUI -n
+python deploy_workflow.py --workflow video-workflows/longcat-img2video.json --comfyui /workspace/ComfyUI --dry-run
 ```
 
 **Example output:**
