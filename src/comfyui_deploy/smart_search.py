@@ -381,65 +381,9 @@ class CivitAISearch:
     
     API_BASE = "https://civitai.com/api/v1"
     
-    # Well-known models that are hard to find via CivitAI search
-    # Maps filename patterns to model IDs
-    KNOWN_MODELS = {
-        "juggernaut": 133005,  # Juggernaut XL
-        "dreamshaper": 4384,   # DreamShaper
-        "realisticvision": 4201,  # Realistic Vision
-        "photon": 84728,  # Photon
-        "zavychroma": 119229,  # ZavyChroma XL
-    }
-    
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key
         self.session = requests.Session()
-    
-    def _try_known_model(self, filename: str, model_type: str | None = None) -> list[dict]:
-        """Check if filename matches a known model and fetch it directly by ID."""
-        filename_lower = filename.lower()
-        
-        for pattern, model_id in self.KNOWN_MODELS.items():
-            if pattern in filename_lower:
-                # Fetch this model directly by ID
-                try:
-                    response = self.session.get(
-                        f"{self.API_BASE}/models/{model_id}",
-                        timeout=30,
-                    )
-                    if response.status_code != 200:
-                        continue
-                    
-                    model = response.json()
-                    results = []
-                    
-                    for version in model.get("modelVersions", []):
-                        for file_info in version.get("files", []):
-                            file_name = file_info.get("name", "")
-                            if not self._is_model_file(file_name):
-                                continue
-                            
-                            download_url = file_info.get("downloadUrl", "")
-                            if self.api_key and download_url:
-                                sep = "&" if "?" in download_url else "?"
-                                download_url = f"{download_url}{sep}token={self.api_key}"
-                            
-                            results.append({
-                                "name": model.get("name"),
-                                "filename": file_name,
-                                "download_url": download_url,
-                                "type": model.get("type", "").lower(),
-                                "downloads": model.get("stats", {}).get("downloadCount", 0),
-                                "source": "civitai",
-                                "model_id": model_id,
-                                "version": version.get("name"),
-                            })
-                    
-                    return results
-                except:
-                    continue
-        
-        return []
     
     def search(self, filename: str, model_type: str | None = None, limit: int = 5) -> list[dict]:
         """
@@ -448,16 +392,6 @@ class CivitAISearch:
         
         Returns list of dicts with: name, filename, download_url, type, downloads
         """
-        # First, try known model lookup (more reliable than search)
-        known_results = self._try_known_model(filename, model_type)
-        if known_results:
-            # Sort by filename similarity
-            known_results.sort(
-                key=lambda x: self._filename_similarity(filename, x["filename"]),
-                reverse=True,
-            )
-            return known_results[:limit]
-        
         # Get multiple search terms to try
         search_terms = self._filename_to_search_terms(filename)
         
