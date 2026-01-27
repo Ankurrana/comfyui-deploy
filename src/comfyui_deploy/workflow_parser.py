@@ -6,7 +6,9 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
+
+from .node_database import get_node_database, NodeDatabase
 
 
 @dataclass
@@ -204,12 +206,13 @@ class WorkflowParser:
         if cnr_id and cnr_id != "comfy-core":
             self._add_custom_node(cnr_id, node_type, properties.get("ver"))
         
-        # Also check node type patterns for custom nodes without cnr_id
-        # e.g., "Label (rgthree)" -> rgthree-comfy
+        # Also check node type for custom nodes without cnr_id
+        # Uses ComfyUI Manager database + local pattern fallback
         if not cnr_id or cnr_id == "comfy-core":
-            detected_cnr_id = self._detect_cnr_id_from_type(node_type)
-            if detected_cnr_id:
-                self._add_custom_node(detected_cnr_id, node_type, None)
+            detected = self._detect_cnr_id_from_type(node_type)
+            if detected:
+                detected_cnr_id, detected_github_url = detected
+                self._add_custom_node(detected_cnr_id, node_type, None, detected_github_url)
         
         # Extract model references
         model_info = self._get_model_type_and_folder(node_type)
@@ -227,9 +230,11 @@ class WorkflowParser:
                 )
                 self.dependencies.models.append(model_ref)
     
-    def _add_custom_node(self, cnr_id: str, node_type: str, version: str | None) -> None:
+    def _add_custom_node(self, cnr_id: str, node_type: str, version: str | None, github_url: str | None = None) -> None:
         """Add or update a custom node reference."""
-        github_url = self.CUSTOM_NODE_REPOS.get(cnr_id)
+        # Use provided github_url, or look up from local mapping
+        if github_url is None:
+            github_url = self.CUSTOM_NODE_REPOS.get(cnr_id)
         
         # Check if already exists
         existing = next(
@@ -239,6 +244,9 @@ class WorkflowParser:
         if existing:
             if node_type not in existing.node_types:
                 existing.node_types.append(node_type)
+            # Update github_url if we found one and existing doesn't have it
+            if github_url and not existing.github_url:
+                existing.github_url = github_url
         else:
             node_ref = CustomNodeReference(
                 cnr_id=cnr_id,
@@ -248,15 +256,33 @@ class WorkflowParser:
             )
             self.dependencies.custom_nodes.append(node_ref)
     
-    def _detect_cnr_id_from_type(self, node_type: str) -> str | None:
-        """Detect custom node cnr_id from node type pattern.
+    def _detect_cnr_id_from_type(self, node_type: str) -> tuple[str, str] | None:
+        """Detect custom node from node type using ComfyUI Manager database.
         
-        Some custom nodes don't set cnr_id but have identifiable patterns
-        in their node type, e.g., 'Label (rgthree)' -> rgthree-comfy
+        First checks the ComfyUI Manager's extension-node-map.json database,
+        then falls back to local pattern matching.
+        
+        Args:
+            node_type: The node type string (e.g., 'Label (rgthree)')
+            
+        Returns:
+            Tuple of (cnr_id, github_url) or None if not found
         """
+        # First, try ComfyUI Manager's database
+        db = get_node_database()
+        github_url = db.get_repo_for_node_type(node_type)
+        
+        if github_url:
+            # Extract cnr_id from the GitHub URL
+            cnr_id = db.extract_cnr_id_from_url(github_url)
+            return (cnr_id, github_url)
+        
+        # Fall back to local pattern matching
         for pattern, cnr_id in self.NODE_TYPE_TO_CNR_ID.items():
             if re.search(pattern, node_type):
-                return cnr_id
+                github_url = self.CUSTOM_NODE_REPOS.get(cnr_id)
+                return (cnr_id, github_url)
+        
         return None
 
     def _get_model_type_and_folder(self, node_type: str) -> tuple[str, str] | None:
