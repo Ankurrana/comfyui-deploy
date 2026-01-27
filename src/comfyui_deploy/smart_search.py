@@ -401,10 +401,15 @@ class CivitAISearch:
         all_results = []
         seen_ids = set()
         
+        # Use higher API limit since CivitAI ranking differs from website
+        # and the model we want might be further down in results
+        api_limit = max(limit * 4, 20)
+        
         for search_term in search_terms:
             params = {
                 "query": search_term,
-                "limit": limit,
+                "limit": api_limit,
+                "sort": "Most Downloaded",  # Prioritize popular models
             }
             if civitai_type:
                 params["types"] = civitai_type
