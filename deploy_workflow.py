@@ -1,6 +1,7 @@
 """
 Complete workflow deployment - Downloads models AND installs custom nodes.
 """
+import os
 import sys
 from pathlib import Path
 from comfyui_deploy.workflow_parser import WorkflowParser
@@ -154,15 +155,26 @@ def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False
     models_downloaded = 0
     
     if download_queue:
+        # Get API keys from environment
+        civitai_api_key = os.environ.get("CIVITAI_API_KEY")
+        hf_token = os.environ.get("HF_TOKEN")
+        
         if parallel > 1:
             print(f"\n⚡ Starting parallel downloads ({parallel} workers)...")
-            parallel_downloader = ParallelDownloader(max_workers=parallel)
+            parallel_downloader = ParallelDownloader(
+                max_workers=parallel,
+                civitai_api_key=civitai_api_key,
+                hf_token=hf_token
+            )
             results = parallel_downloader.download_all(download_queue)
             models_downloaded = len(results["successful"])
             models_failed += len(results["failed"])
         else:
             print(f"\n📥 Downloading models sequentially...")
-            downloader = ModelDownloader()
+            downloader = ModelDownloader(
+                civitai_api_key=civitai_api_key,
+                hf_token=hf_token
+            )
             for item in download_queue:
                 try:
                     print(f"\n   📥 {item['filename']}")
