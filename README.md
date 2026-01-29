@@ -94,17 +94,13 @@ PARSING WORKFLOW
 Once you've reviewed the dependencies, run the full deployment:
 
 ```bash
-python deploy_workflow.py \
-  --workflow video-workflows/longcat-img2video.json \
-  --comfyui /workspace/ComfyUI
+python deploy_workflow.py --workflow video-workflows/longcat-img2video.json --comfyui /workspace/ComfyUI
 ```
 
 Or with parallel downloads for faster speed:
 
 ```bash
-python deploy_workflow.py \
-  --workflow video-workflows/longcat-img2video.json \
-  --comfyui /workspace/ComfyUI \
+python deploy_workflow.py --workflow video-workflows/longcat-img2video.json \--comfyui /workspace/ComfyUI \
   --parallel 8
 ```
 
@@ -373,6 +369,69 @@ CUSTOM_NODE_REPOS = {
 }
 ```
 
+## Setup ComfyUI with Default Packages
+
+The tool includes a setup script that installs essential custom nodes and can update ComfyUI.
+
+### Default Packages
+
+The following packages are configured as defaults in `default-packages.json`:
+
+| Package | Description |
+|---------|-------------|
+| **ComfyUI-Manager** | Essential node manager - install/update nodes from UI |
+| **ComfyUI-Impact-Pack** | Detector, detailer, upscaler, and utility nodes |
+| **ComfyUI-Inspire-Pack** | Regional prompting, wildcards, creative tools |
+| **rgthree-comfy** | Quality of life nodes - context, reroute, bookmark |
+| **ComfyUI-VideoHelperSuite** | Video loading, combining, and export utilities |
+
+### Install Default Packages
+
+```bash
+# Install all default packages
+python setup_comfyui.py --comfyui /workspace/ComfyUI
+
+# Dry run - see what would be installed
+python setup_comfyui.py --comfyui /workspace/ComfyUI --dry-run
+```
+
+### Update ComfyUI
+
+```bash
+# Update ComfyUI to latest version
+python setup_comfyui.py --comfyui /workspace/ComfyUI --update
+
+# Update ComfyUI AND install default packages
+python setup_comfyui.py --comfyui /workspace/ComfyUI --update
+
+# Only update (skip default packages)
+python setup_comfyui.py --comfyui /workspace/ComfyUI --update --no-defaults
+```
+
+### Custom Default Packages
+
+You can customize the default packages by editing `default-packages.json`:
+
+```json
+{
+  "description": "My custom default packages",
+  "custom_nodes": [
+    {
+      "name": "My-Custom-Node",
+      "cnr_id": "my-custom-node",
+      "github_url": "https://github.com/user/my-custom-node",
+      "description": "Description of what it does"
+    }
+  ]
+}
+```
+
+Or use a completely custom config file:
+
+```bash
+python setup_comfyui.py --comfyui /workspace/ComfyUI --config my-packages.json
+```
+
 ## Troubleshooting
 
 ### Model not found
@@ -399,3 +458,4 @@ Contributions welcome! Please submit pull requests for:
 - New model repository mappings
 - New custom node mappings
 - Bug fixes and improvements
+

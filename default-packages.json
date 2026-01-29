@@ -1,0 +1,41 @@
+{
+  "description": "Default custom nodes to install with every deployment",
+  "custom_nodes": [
+    {
+      "name": "ComfyUI-Manager",
+      "cnr_id": "comfyui-manager",
+      "github_url": "https://github.com/ltdrdata/ComfyUI-Manager",
+      "description": "Essential node manager for ComfyUI - install/update nodes from UI"
+    },
+    {
+      "name": "ComfyUI-Impact-Pack",
+      "cnr_id": "comfyui-impact-pack",
+      "github_url": "https://github.com/ltdrdata/ComfyUI-Impact-Pack",
+      "description": "Detector, detailer, upscaler, and many utility nodes"
+    },
+    {
+      "name": "ComfyUI-Inspire-Pack",
+      "cnr_id": "comfyui-inspire-pack",
+      "github_url": "https://github.com/ltdrdata/ComfyUI-Inspire-Pack",
+      "description": "Regional prompting, wildcards, and creative tools"
+    },
+    {
+      "name": "rgthree-comfy",
+      "cnr_id": "rgthree-comfy",
+      "github_url": "https://github.com/rgthree/rgthree-comfy",
+      "description": "Quality of life nodes - context, reroute, bookmark, etc."
+    },
+    {
+      "name": "ComfyUI-VideoHelperSuite",
+      "cnr_id": "comfyui-videohelpersuite",
+      "github_url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite",
+      "description": "Video loading, combining, and export utilities"
+    },
+    {
+      "name": "ComfyUI-Crystools",
+      "cnr_id": "comfyui-crystools",
+      "github_url": "https://github.com/crystian/ComfyUI-Crystools",
+      "description": "Essential utility nodes - metadata, debugging, resources monitor"
+    }
+  ]
+}
