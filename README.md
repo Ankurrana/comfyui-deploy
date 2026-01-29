@@ -42,20 +42,20 @@ This installs all required packages: `requests`, `rich`, `click`, `pyyaml`, `hug
 
 ### Example: Deploy LongCat Video Workflow
 
-This example uses the included LongCat image-to-video workflow located in `video-workflows/`.
+This example uses the included LongCat image-to-video workflow located in `workflows/`.
 
 #### Step 1: Analyze the Workflow (Dry Run)
 
 First, see what models and custom nodes are required **without downloading anything**:
 
 ```bash
-python deploy_workflow.py -w video-workflows/longcat-img2video.json -c /workspace/ComfyUI --dry-run
+python deploy_workflow.py -w workflows/longcat-img2video.json -c /workspace/ComfyUI --dry-run
 ```
 
 Or using the full flag names:
 
 ```bash
-python deploy_workflow.py --workflow video-workflows/longcat-img2video.json --comfyui /workspace/ComfyUI --dry-run
+python deploy_workflow.py --workflow workflows/longcat-img2video.json --comfyui /workspace/ComfyUI --dry-run
 ```
 
 **Example output:**
@@ -94,21 +94,22 @@ PARSING WORKFLOW
 Once you've reviewed the dependencies, run the full deployment:
 
 ```bash
-python deploy_workflow.py --workflow video-workflows/longcat-img2video.json --comfyui /workspace/ComfyUI
+python deploy_workflow.py --workflow workflows/longcat-img2video.json --comfyui /workspace/ComfyUI
 ```
 
 Or with parallel downloads for faster speed:
 
 ```bash
-python deploy_workflow.py --workflow video-workflows/longcat-img2video.json \--comfyui /workspace/ComfyUI \
+python deploy_workflow.py --workflow workflows/longcat-img2video.json \--comfyui /workspace/ComfyUI \
   --parallel 8
 ```
 
 This will:
-1. ✅ Clone all required custom nodes to `/workspace/ComfyUI/custom_nodes/`
-2. ✅ Install Python dependencies for each custom node
-3. ✅ Search for and download all models to their correct folders
-4. ✅ Display a summary of what was installed
+1. ✅ Install default packages (ComfyUI-Manager, Impact-Pack, etc.)
+2. ✅ Clone all required custom nodes to `/workspace/ComfyUI/custom_nodes/`
+3. ✅ Install Python dependencies for each custom node
+4. ✅ Search for and download all models to their correct folders
+5. ✅ Display a summary of what was installed
 
 #### Step 3: Start ComfyUI and Load the Workflow
 
@@ -117,7 +118,7 @@ cd /workspace/ComfyUI
 python main.py
 ```
 
-Then load `video-workflows/longcat-img2video.json` in the ComfyUI interface.
+Then load `workflows/longcat-img2video.json` in the ComfyUI interface.
 
 ## Command Reference
 
@@ -133,6 +134,7 @@ Required Arguments:
 Options:
   --dry-run, -n     Analyze only, don't download/install anything
   --parallel, -p    Number of parallel downloads (default: 4)
+  --no-defaults     Skip installing default packages (ComfyUI-Manager, etc.)
 ```
 
 ### Examples
@@ -141,11 +143,14 @@ Options:
 # Dry run - see what will be installed
 python deploy_workflow.py -w workflow.json -c /workspace/ComfyUI --dry-run
 
-# Standard deployment (4 parallel downloads)
+# Standard deployment (4 parallel downloads + default packages)
 python deploy_workflow.py -w workflow.json -c /workspace/ComfyUI
 
 # Fast deployment (8 parallel downloads)
 python deploy_workflow.py -w workflow.json -c /workspace/ComfyUI --parallel 8
+
+# Skip default packages (only install workflow-specific nodes)
+python deploy_workflow.py -w workflow.json -c /workspace/ComfyUI --no-defaults
 
 # Sequential downloads (for slow/metered connections)
 python deploy_workflow.py -w workflow.json -c /workspace/ComfyUI --parallel 1
@@ -155,10 +160,10 @@ python deploy_workflow.py -w workflow.json -c /workspace/ComfyUI --parallel 1
 
 ```bash
 # Analyze workflow
-comfyui-deploy analyze video-workflows/longcat-img2video.json
+comfyui-deploy analyze workflows/longcat-img2video.json
 
 # Deploy with all dependencies
-comfyui-deploy deploy video-workflows/longcat-img2video.json --comfyui-path /workspace/ComfyUI
+comfyui-deploy deploy workflows/longcat-img2video.json --comfyui-path /workspace/ComfyUI
 
 # Search for a model
 comfyui-deploy search "LongCat"

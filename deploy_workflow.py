@@ -16,8 +16,9 @@ from comfyui_deploy.workflow_parser import WorkflowParser
 from comfyui_deploy.smart_search import smart_search
 from comfyui_deploy.node_installer import NodeInstaller, BatchNodeInstaller
 from comfyui_deploy.downloader import ModelDownloader, BatchDownloader, ParallelDownloader
+from setup_comfyui import install_default_packages
 
-def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False, parallel: int = 4):
+def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False, parallel: int = 4, install_defaults: bool = True):
     """
     Deploy a complete workflow to a ComfyUI installation.
     
@@ -26,6 +27,7 @@ def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False
         comfyui_path: Path to ComfyUI installation
         dry_run: If True, only analyze without making changes
         parallel: Number of parallel downloads (default: 4, set to 1 for sequential)
+        install_defaults: If True, install default packages (ComfyUI-Manager, etc.)
     """
     comfyui = Path(comfyui_path)
     
@@ -99,10 +101,24 @@ def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False
         return
     
     # ========================================
-    # STEP 1: Install Custom Nodes
+    # STEP 0: Install Default Packages
+    # ========================================
+    if install_defaults:
+        print("\n" + "=" * 70)
+        print("STEP 0: INSTALLING DEFAULT PACKAGES")
+        print("=" * 70)
+        print("\nInstalling essential custom nodes (ComfyUI-Manager, etc.)...")
+        defaults_result = install_default_packages(comfyui, dry_run=False)
+        print(f"\n   • Installed: {defaults_result['installed']}")
+        print(f"   • Already present: {defaults_result['skipped']}")
+        if defaults_result['failed'] > 0:
+            print(f"   • Failed: {defaults_result['failed']}")
+    
+    # ========================================
+    # STEP 1: Install Custom Nodes (Workflow-specific)
     # ========================================
     print("\n" + "=" * 70)
-    print("STEP 1: INSTALLING CUSTOM NODES")
+    print("STEP 1: INSTALLING WORKFLOW CUSTOM NODES")
     print("=" * 70)
     
     installer = NodeInstaller(comfyui_path=comfyui)
@@ -259,6 +275,7 @@ Examples:
     parser.add_argument("--comfyui", "-c", required=True, help="Path to ComfyUI installation")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Analyze only, don't make changes")
     parser.add_argument("--parallel", "-p", type=int, default=4, help="Number of parallel downloads (default: 4, use 1 for sequential)")
+    parser.add_argument("--no-defaults", action="store_true", help="Skip installing default packages (ComfyUI-Manager, etc.)")
     
     args = parser.parse_args()
     
@@ -266,6 +283,7 @@ Examples:
     print(f"ComfyUI:  {args.comfyui}")
     print(f"Dry run:  {args.dry_run}")
     print(f"Parallel: {args.parallel} workers")
+    print(f"Install defaults: {not args.no_defaults}")
     print()
     
-    deploy_workflow(args.workflow, args.comfyui, dry_run=args.dry_run, parallel=args.parallel)
+    deploy_workflow(args.workflow, args.comfyui, dry_run=args.dry_run, parallel=args.parallel, install_defaults=not args.no_defaults)
