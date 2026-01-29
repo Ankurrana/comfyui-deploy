@@ -1,6 +1,6 @@
-# Video Workflows
+# Workflows
 
-A collection of ComfyUI workflows for video generation.
+A collection of ComfyUI workflows for image and video generation.
 
 ---
 
@@ -50,10 +50,10 @@ This workflow generates **5 to 30 second videos** from a single input image usin
 
 ```bash
 # Deploy this workflow to a new ComfyUI installation
-python deploy_workflow.py -w video-workflows/longcat-img2video.json -c /path/to/ComfyUI
+python deploy_workflow.py -w workflows/longcat-img2video.json -c /path/to/ComfyUI
 
 # Dry run to see what will be installed
-python deploy_workflow.py -w video-workflows/longcat-img2video.json -c /path/to/ComfyUI --dry-run
+python deploy_workflow.py -w workflows/longcat-img2video.json -c /path/to/ComfyUI --dry-run
 ```
 
 ### Tips
