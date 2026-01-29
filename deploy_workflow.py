@@ -56,6 +56,18 @@ def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False
         status = "✅" if target_path.exists() else "❌"
         print(f"   {status} {m.filename} ({m.model_type})")
         print(f"      → {m.target_folder}")
+        
+        # Resolve download URL if not already known
+        if not m.download_url:
+            result = smart_search(m.filename, model_type=m.model_type)
+            if result:
+                m.download_url = result["download_url"]
+                m.source = result["source"]
+        
+        if m.download_url:
+            print(f"      🔗 {m.download_url}")
+        else:
+            print(f"      ⚠️  No download URL found")
     
     print(f"\n🧩 Custom nodes required: {len([n for n in deps.custom_nodes if n.cnr_id != 'comfy-core'])}")
     for n in deps.custom_nodes:
@@ -146,12 +158,14 @@ def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False
                 model.download_url = result["download_url"]
                 model.source = result["source"]
                 print(f"   ✅ {model.filename} - Found on {model.source}")
+                print(f"      🔗 {model.download_url}")
             else:
                 print(f"   ❌ {model.filename} - Could not find download URL")
                 models_failed += 1
                 continue
         else:
             print(f"   ✅ {model.filename} - URL provided")
+            print(f"      🔗 {model.download_url}")
         
         download_queue.append({
             "url": model.download_url,
@@ -186,6 +200,7 @@ def deploy_workflow(workflow_path: str, comfyui_path: str, dry_run: bool = False
             for item in download_queue:
                 try:
                     print(f"\n   📥 {item['filename']}")
+                    print(f"      🔗 {item['url']}")
                     path = downloader.download(
                         url=item["url"],
                         destination=item["destination"],

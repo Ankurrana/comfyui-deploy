@@ -89,6 +89,7 @@ class WorkflowParser:
         
         # Upscalers
         r".*[Uu]pscale.*[Mm]odel.*[Ll]oader.*": ("upscale", "models/upscale_models"),
+        r".*[Ll]atent.*[Uu]pscale.*[Mm]odel.*[Ll]oader.*": ("upscale", "models/latent_upscale_models"),
         r".*ESRGAN.*": ("upscale", "models/upscale_models"),
         
         # IP Adapter
@@ -214,6 +215,16 @@ class WorkflowParser:
                 detected_cnr_id, detected_github_url = detected
                 self._add_custom_node(detected_cnr_id, node_type, None, detected_github_url)
         
+        # Extract embedded model URLs from properties.models array (ComfyUI format)
+        embedded_models = properties.get("models", [])
+        embedded_url_map = {}
+        embedded_directory_map = {}
+        for em in embedded_models:
+            if isinstance(em, dict) and em.get("name") and em.get("url"):
+                embedded_url_map[em["name"]] = em["url"]
+                if em.get("directory"):
+                    embedded_directory_map[em["name"]] = em["directory"]
+        
         # Extract model references
         model_info = self._get_model_type_and_folder(node_type)
         if model_info:
@@ -221,12 +232,22 @@ class WorkflowParser:
             model_name = self._extract_model_name(node_type, widgets_values)
             
             if model_name and self._is_valid_model_name(model_name):
+                # Check for embedded URL and directory override
+                download_url = embedded_url_map.get(model_name)
+                
+                # Use embedded directory if available (more accurate)
+                if model_name in embedded_directory_map:
+                    embedded_dir = embedded_directory_map[model_name]
+                    target_folder = f"models/{embedded_dir}"
+                
                 model_ref = ModelReference(
                     filename=model_name,
                     node_type=node_type,
                     node_id=node_id,
                     model_type=model_type,
                     target_folder=target_folder,
+                    download_url=download_url,
+                    source="workflow" if download_url else None,
                 )
                 self.dependencies.models.append(model_ref)
     

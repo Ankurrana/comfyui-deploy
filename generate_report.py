@@ -31,10 +31,16 @@ def check_url(url: str, timeout: int = 15) -> tuple[bool, str]:
             headers["Authorization"] = f"Bearer {hf_token}"
     
     try:
-        response = requests.head(url, headers=headers, timeout=timeout, allow_redirects=True)
-        if response.status_code == 405:
+        # CivitAI returns 403 for HEAD requests even with valid token
+        # So use GET with stream=True for CivitAI URLs
+        if "civitai.com" in url:
             response = requests.get(url, headers=headers, timeout=timeout, stream=True)
             response.close()
+        else:
+            response = requests.head(url, headers=headers, timeout=timeout, allow_redirects=True)
+            if response.status_code == 405:
+                response = requests.get(url, headers=headers, timeout=timeout, stream=True)
+                response.close()
         
         if response.status_code == 200:
             return True, "OK"

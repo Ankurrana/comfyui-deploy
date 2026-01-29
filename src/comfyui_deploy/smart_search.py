@@ -389,6 +389,8 @@ class CivitAISearch:
         """
         Search CivitAI for models matching the filename.
         Tries multiple search term variations since CivitAI search is strict.
+        Uses pagination since CivitAI API max limit is 100 and the model might
+        be on page 2+ of results.
         
         Returns list of dicts with: name, filename, download_url, type, downloads
         """
@@ -401,69 +403,84 @@ class CivitAISearch:
         all_results = []
         seen_ids = set()
         
-        # Use higher API limit since CivitAI ranking differs from website
-        # and the model we want might be further down in results
-        api_limit = max(limit * 4, 20)
+        # CivitAI API has max limit of 100
+        api_limit = 100
+        # Number of pages to fetch (10 pages = 1000 results max)
+        max_pages = 10
         
         for search_term in search_terms:
-            params = {
-                "query": search_term,
-                "limit": api_limit,
-                "sort": "Most Downloaded",  # Prioritize popular models
-            }
-            if civitai_type:
-                params["types"] = civitai_type
+            cursor = None
             
-            try:
-                response = self.session.get(
-                    f"{self.API_BASE}/models",
-                    params=params,
-                    timeout=30,
-                )
-                response.raise_for_status()
-                data = response.json()
-                
-                for model in data.get("items", []):
-                    # Skip if we've already seen this model
-                    model_id = model.get("id")
-                    if model_id in seen_ids:
-                        continue
-                    seen_ids.add(model_id)
+            for page in range(max_pages):
+                params = {
+                    "query": search_term,
+                    "limit": api_limit,
+                    "sort": "Most Downloaded",  # Prioritize popular models
+                }
+                if civitai_type:
+                    params["types"] = civitai_type
+                if cursor:
+                    params["cursor"] = cursor
+            
+                try:
+                    response = self.session.get(
+                        f"{self.API_BASE}/models",
+                        params=params,
+                        timeout=30,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
                     
-                    versions = model.get("modelVersions", [])
-                    if not versions:
-                        continue
+                    items = data.get("items", [])
+                    if not items:
+                        break  # No more results for this search term
                     
-                    # Check ALL versions for filename matches, not just latest
-                    # This helps find renamed/older versions
-                    for version in versions:
-                        files = version.get("files", [])
-                        for file_info in files:
-                            file_name = file_info.get("name", "")
-                            if not self._is_model_file(file_name):
-                                continue
-                            
-                            download_url = file_info.get("downloadUrl", "")
-                            
-                            # Add API key to URL if available (needed for some downloads)
-                            if self.api_key and download_url:
-                                sep = "&" if "?" in download_url else "?"
-                                download_url = f"{download_url}{sep}token={self.api_key}"
-                            
-                            all_results.append({
-                                "name": model.get("name"),
-                                "filename": file_name,
-                                "download_url": download_url,
-                                "type": model.get("type", "").lower(),
-                                "downloads": model.get("stats", {}).get("downloadCount", 0),
-                                "source": "civitai",
-                                "model_id": model.get("id"),
-                                "version": version.get("name"),
-                            })
+                    for model in items:
+                        # Skip if we've already seen this model
+                        model_id = model.get("id")
+                        if model_id in seen_ids:
+                            continue
+                        seen_ids.add(model_id)
                         
-            except requests.RequestException as e:
-                console.print(f"[dim]  CivitAI search error for '{search_term}': {e}[/dim]")
-                continue
+                        versions = model.get("modelVersions", [])
+                        if not versions:
+                            continue
+                        
+                        # Check ALL versions for filename matches, not just latest
+                        # This helps find renamed/older versions
+                        for version in versions:
+                            files = version.get("files", [])
+                            for file_info in files:
+                                file_name = file_info.get("name", "")
+                                if not self._is_model_file(file_name):
+                                    continue
+                                
+                                download_url = file_info.get("downloadUrl", "")
+                                
+                                # Add API key to URL if available (needed for some downloads)
+                                if self.api_key and download_url:
+                                    sep = "&" if "?" in download_url else "?"
+                                    download_url = f"{download_url}{sep}token={self.api_key}"
+                                
+                                all_results.append({
+                                    "name": model.get("name"),
+                                    "filename": file_name,
+                                    "download_url": download_url,
+                                    "type": model.get("type", "").lower(),
+                                    "downloads": model.get("stats", {}).get("downloadCount", 0),
+                                    "source": "civitai",
+                                    "model_id": model.get("id"),
+                                    "version": version.get("name"),
+                                })
+                    
+                    # Get next page cursor
+                    cursor = data.get("metadata", {}).get("nextCursor")
+                    if not cursor:
+                        break  # No more pages
+                        
+                except requests.RequestException as e:
+                    console.print(f"[dim]  CivitAI search error for '{search_term}': {e}[/dim]")
+                    break  # Move to next search term on error
         
         # Sort by filename similarity and downloads
         all_results.sort(
@@ -532,19 +549,28 @@ class CivitAISearch:
         if term2 != terms[0] and term2 not in terms:
             terms.append(term2)
         
-        # Try CivitAI-style naming (juggernautXL_ prefix)
+        # For multi-word names, try individual significant words (4+ chars)
+        # e.g., "Pony Realism Slider" -> try "Realism", "Slider"
+        words = re.split(r"[_\-\s]+", name)
+        for word in words:
+            # Skip common/generic words and short words
+            word_clean = re.sub(r'\d+', '', word)  # Remove numbers
+            if len(word_clean) >= 4 and word_clean.lower() not in [t.lower() for t in terms]:
+                # Skip very common words
+                if word_clean.lower() not in ['model', 'lora', 'style', 'version', 'base']:
+                    terms.append(word_clean)
+        
+        # Try CivitAI-style naming (juggernautXL_ prefix) - but don't break early
         name_lower = name.lower()
         civitai_prefixes = [
             ("juggernaut", "juggernautxl"),
             ("dreamshaper", "dreamshaper"),
             ("realistic", "realisticVision"),
             ("photon", "photon"),
-            ("pony", "ponyDiffusion"),
         ]
         for keyword, prefix in civitai_prefixes:
-            if keyword in name_lower:
+            if keyword in name_lower and prefix.lower() not in [t.lower() for t in terms]:
                 terms.append(prefix)
-                break
         
         # Try just the first word/part (e.g., "juggernaut" from "Juggernaut_X_RunDiffusion")
         first_part = re.split(r"[_\-\s]+", name)[0]
@@ -557,7 +583,7 @@ class CivitAISearch:
             if part and len(part) >= 4 and part.lower() not in [t.lower() for t in terms]:
                 terms.append(part)
         
-        return terms[:5]  # Limit to 5 variations
+        return terms[:7]  # Limit to 7 variations
     
     def _filename_to_search_term(self, filename: str) -> str:
         """Convert filename to search term (legacy, returns first term)."""
