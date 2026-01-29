@@ -183,6 +183,14 @@ class WorkflowParser:
         for node in nodes:
             self._process_node(node)
         
+        # Also check for subgraphs (nested workflows)
+        definitions = workflow_data.get("definitions", {})
+        subgraphs = definitions.get("subgraphs", [])
+        for subgraph in subgraphs:
+            subgraph_nodes = subgraph.get("nodes", [])
+            for node in subgraph_nodes:
+                self._process_node(node)
+        
         # Extract embedded documentation (often contains download URLs)
         self._extract_embedded_docs(nodes)
         
